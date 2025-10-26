@@ -20,6 +20,7 @@ const COMMAND_LINE_ARGS = {
   maxConcurrent: 'max-concurrent',
   minTimePage: 'min-time-page',
   minTimeAttachment: 'min-time-image',
+  exportJson: 'export-json',
   noPrompt: 'no-prompt',
   continue: 'continue'
 } as const;
@@ -106,6 +107,12 @@ const OPT_DEFS = [
     typeLabel: '<milliseconds>'
   },
   {
+    name: COMMAND_LINE_ARGS.exportJson,
+    description: 'Export results to a single JSON file at <path>',
+    type: String,
+    typeLabel: '<path>'
+  },
+  {
     name: COMMAND_LINE_ARGS.continue,
     description: 'Continue from previous download',
     type: Boolean
@@ -174,6 +181,7 @@ export default class CommandLineParser {
         },
         cookie: __getValue(COMMAND_LINE_ARGS.cookie)
       },
+      exportJson: __getValue(COMMAND_LINE_ARGS.exportJson),
       continue: __getValue(COMMAND_LINE_ARGS.continue),
       noPrompt: __getValue(COMMAND_LINE_ARGS.noPrompt),
       logging: {

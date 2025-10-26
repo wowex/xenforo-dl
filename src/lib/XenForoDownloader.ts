@@ -25,6 +25,8 @@ export interface DownloaderConfig extends DeepRequired<Pick<DownloaderOptions,
   'overwrite' |
   'continue'>> {
     targetURL: string;
+    // optional path to export aggregated results (single JSON file)
+    exportJson?: string | undefined;
   }
 
 export interface DownloaderStartParams {
@@ -61,6 +63,8 @@ export default class XenForoDownloader {
   protected config: deepFreeze.DeepReadonly<DownloaderConfig>;
   protected logger?: Logger | null;
   protected parser: Parser;
+  protected exportCollection: Thread[];
+  protected exportTemp: Map<number, { thread: { url: string; title: string; breadcrumbs: { url: string; title: string }[] }, messages: ThreadMessage[] }>;
 
   constructor(url: string, options?: DownloaderOptions) {
     this.config = deepFreeze({
@@ -76,6 +80,8 @@ export default class XenForoDownloader {
     });
     this.logger = options?.logger;
     this.parser = new Parser(this.logger);
+    this.exportCollection = [];
+    this.exportTemp = new Map();
   }
 
   async start(params: DownloaderStartParams): Promise<void> {
@@ -124,6 +130,30 @@ export default class XenForoDownloader {
     this.log('info', `Downloaded attachments: ${stats.downloadedAttachmentCount}`);
     this.log('info', `Skipped existing attachments: ${stats.skippedExistingAttachmentCount}`);
     this.log('info', `Errors: ${stats.errorCount}`);
+    // If exportJson is configured, there are two behaviours:
+    // - If the provided path contains directory information (dirname != '.'),
+    //   the user likely requested a single aggregated file at that path -> keep legacy behaviour.
+    // - Otherwise (user passed only a filename), write per-thread JSON files into the
+    //   same directories where the TXT files were saved (preserve folder structure).
+    try {
+      const exportPath = this.config.exportJson;
+      if (exportPath) {
+        const hasDir = path.dirname(exportPath) !== '.';
+        if (hasDir) {
+          const resolved = path.isAbsolute(exportPath) ? exportPath : path.resolve(this.config.outDir, exportPath);
+          fse.ensureDirSync(path.parse(resolved).dir);
+          fse.writeJSONSync(resolved, this.exportCollection, { spaces: 2 });
+          this.log('info', `Exported aggregated results to JSON: ${resolved}`);
+        }
+        else {
+          // Per-thread JSON files are written during thread finalization; nothing to do here.
+          this.log('info', 'Per-thread JSON export was used (files written next to TXT files)');
+        }
+      }
+    }
+    catch (error) {
+      this.log('error', 'Failed to write export JSON:', error);
+    }
   }
 
   #updateStatsOnError(error: any, stats: DownloadStats) {
@@ -169,6 +199,11 @@ export default class XenForoDownloader {
       const {html} = await this.#fetchPage(url, signal);
       threadPage = this.parser.parseThreadPage(html, url);
       if (threadPage) {
+  // Ensure an export temp entry exists for this thread (messages will be
+  // appended as we process them to preserve ordering across pages).
+  const temp = this.exportTemp.get(threadPage.id) || { thread: { url: threadPage.url, title: threadPage.title, breadcrumbs: threadPage.breadcrumbs }, messages: [] };
+  this.exportTemp.set(threadPage.id, temp);
+
         this.log('info', `Fetched "${threadPage.title}" (page ${threadPage.currentPage} / ${threadPage.totalPages})`);
 
         if (!context?.continued && this.config.continue) {
@@ -261,6 +296,11 @@ export default class XenForoDownloader {
             this.#saveMessage(message, messageFile);
             stats.processedMessageCount++;
 
+            // Append to export temp collection (store a shallow copy to avoid
+            // accidental mutation later)
+            const entry: ThreadMessage = { ...message, attachments: message.attachments.map((a) => ({ ...a })) };
+            temp.messages.push(entry);
+
             this.#saveDownloadStatus(threadPage, message, threadSavePath);
           }
         }
@@ -281,6 +321,40 @@ export default class XenForoDownloader {
     else if (threadPage) {
       this.log('info', `Done downloading thread "${threadPage.title}"`);
       stats.processedThreadCount++;
+      // Finalize export for this thread if export is enabled
+      const temp = this.exportTemp.get(threadPage.id);
+      if (temp) {
+        const threadObj: Thread = {
+          id: threadPage.id,
+          url: threadPage.url,
+          title: threadPage.title,
+          breadcrumbs: threadPage.breadcrumbs,
+          messages: temp.messages
+        };
+        this.exportCollection.push(threadObj);
+        this.exportTemp.delete(threadPage.id);
+  // compute save path for this thread (ensure we place JSON beside the TXT files)
+  const threadSavePath = this.#getThreadSavePath(threadPage);
+        // If exportJson was requested, write a per-thread JSON file next to the TXT files
+        try {
+          if (this.config.exportJson) {
+            // If user supplied a path with directories they probably wanted an aggregated file
+            // (that's handled at the end). When they supply only a filename, write per-thread files
+            // using that filename in the thread's save directory to preserve folder structure.
+            const exportIsNameOnly = path.dirname(this.config.exportJson) === '.';
+            if (exportIsNameOnly) {
+              const exportName = path.basename(this.config.exportJson) || 'export.json';
+              const sanitized = sanitizeFilename(exportName);
+              const exportFile = path.resolve(threadSavePath, sanitized);
+              fse.writeJSONSync(exportFile, threadObj, { spaces: 2 });
+              this.log('info', `Exported thread results to JSON: ${exportFile}`);
+            }
+          }
+        }
+        catch (error) {
+          this.log('error', 'Failed to write per-thread export JSON:', error);
+        }
+      }
     }
   }
 

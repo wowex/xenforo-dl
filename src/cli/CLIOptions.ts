@@ -13,6 +13,7 @@ export interface CLIOptions extends Omit<DownloaderOptions, 'dirStructure' | 'lo
     file?: string;
   };
   continue: boolean;
+  exportJson?: string;
 }
 
 export interface CLIOptionParserEntry {
@@ -45,6 +46,8 @@ export function getCLIOptions(): CLIOptions {
       file: CLIOptionValidator.validateString(commandLineOptions.logging?.file)
     },
     continue: CLIOptionValidator.validateBoolean(commandLineOptions.continue) || false
+    ,
+    exportJson: CLIOptionValidator.validateString(commandLineOptions.exportJson)
   };
 
   return options;

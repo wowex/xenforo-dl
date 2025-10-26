@@ -22,6 +22,7 @@ export interface DownloaderOptions {
   };
   overwrite?: boolean;
   continue?: boolean;
+  exportJson?: string | null;
   logger?: Logger | null;
 }
 
@@ -69,6 +70,7 @@ export function getDownloaderConfig(url: string, options?: DownloaderOptions): D
     },
     overwrite: pickDefined(options?.overwrite, defaults.overwrite),
     continue: pickDefined(options?.continue, defaults.continue),
+    exportJson: options?.exportJson || undefined,
     targetURL: url
   };
 }
