@@ -99,7 +99,42 @@ export default class Parser {
           };
         });
 
-        const body = trimNewlines(this.#htmlToText(el.find('article.message-body').html()).trim());
+        // Handle quoted messages: if the message contains a quote block with a
+        // link to quoted posts, extract their numeric IDs and remove the quote
+        // from the HTML before converting to text. This keeps quotes out of the
+        // message body and provides a list of referenced message IDs.
+        const messageBodyEl = el.find('article.message-body');
+        const quoteMessages: number[] = [];
+        try {
+          const quoteEl = messageBodyEl.find('blockquote, div.bbCodeBlock, div.bbCodeBlock--quote').first();
+          if (quoteEl && quoteEl.length > 0) {
+            const anchors = quoteEl.find('a').toArray();
+            for (const a of anchors) {
+              const href = (a as any).attribs && (a as any).attribs.href;
+              if (!href) continue;
+              // Try common patterns that contain post id
+              const gotoMatch = /\/goto\/post\?id=(\d+)/.exec(href);
+              const postsMatch = /\/posts\/(\d+)/.exec(href);
+              const queryIdMatch = /[?&]post=(\d+)/.exec(href);
+              const numericMatch = /(?:post|posts)[-\/]?(\d+)/.exec(href);
+              let id: number | null = null;
+              if (gotoMatch) id = Number(gotoMatch[1]);
+              else if (postsMatch) id = Number(postsMatch[1]);
+              else if (queryIdMatch) id = Number(queryIdMatch[1]);
+              else if (numericMatch) id = Number(numericMatch[1]);
+              if (id && !isNaN(id) && !quoteMessages.includes(id)) {
+                quoteMessages.push(id);
+              }
+            }
+            // Remove the quote block so html-to-text doesn't include its contents
+            quoteEl.remove();
+          }
+        }
+        catch (e) {
+          this.log('debug', 'Failed to extract quoted message ids:', e);
+        }
+
+        const body = trimNewlines(this.#htmlToText(messageBodyEl.html()).trim());
         const publishedAt = el.find('ul.message-attribution-main li.u-concealed time.u-dt').attr('datetime');
 
         return {
@@ -108,6 +143,7 @@ export default class Parser {
           author,
           publishedAt,
           body,
+          quoteMessages: quoteMessages.length > 0 ? quoteMessages : undefined,
           attachments
         };
       })

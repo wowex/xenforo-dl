@@ -13,6 +13,8 @@ export interface ThreadMessage {
   author?: string;
   publishedAt?: string;
   body?: string;
+  // optional list of quoted message IDs (if the message quotes one or more posts)
+  quoteMessages?: number[];
   attachments: ThreadMessageAttachment[];
 }
 
