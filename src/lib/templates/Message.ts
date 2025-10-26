@@ -3,7 +3,7 @@ import { ThreadMessage } from '../entities/Thread.js';
 
 const MESSAGE_TEMPLATE_BASE =
 `{message.separator}
-{message.index} - {message.publishedAt}
+{message.index} [/goto/post?id={message.id}] - {message.publishedAt}
 by {message.author}
 {message.separator}
 
@@ -27,7 +27,7 @@ const MESSAGE_TEMPLATE_WITHOUT_ATTACHMENTS =
 export default class MessageTemplate {
 
   static #getSeparator(message: ThreadMessage) {
-    const s1 = `${message.index} - ${message.publishedAt}`;
+    const s1 = `${message.index} [/goto/post?id=${message.id}] - ${message.publishedAt}`;
     const s2 = `by ${message.author}`;
     return '-'.repeat(Math.max(s1.length, s2.length));
   }
@@ -40,6 +40,7 @@ export default class MessageTemplate {
     return template
       .replaceAll('{message.separator}', this.#getSeparator(message))
       .replaceAll('{message.index}', String(message.index))
+      .replaceAll('{message.id}', String(message.id))
       .replaceAll('{message.author}', message.author || '[unknown]')
       .replaceAll('{message.publishedAt}', message.publishedAt || '')
       .replaceAll('{message.body}', message.body || '')
